@@ -29,66 +29,90 @@ reg. No.: 212220230019
 
 ``` c
 #include <stdio.h>
-#include <cuda.h>
+#include <sys/time.h>
 
-__global__ void cudaAdd(int* a, int* b, int* c, const int N) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < N) {
-        c[i] = a[i] * b[i];
+#define SIZE 4
+#define BLOCK_SIZE 2
+
+// Kernel function to perform matrix multiplication
+__global__ void matrixMultiply(int *a, int *b, int *c, int size)
+{
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    int sum = 0;
+    for (int k = 0; k < size; ++k)
+    {
+        sum += a[row * size + k] * b[k * size + col];
     }
+
+    c[row * size + col] = sum;
 }
-int main() {
-    srand(time(0));
-    int a[100], b[100], c[100];
 
-    for (int i = 0; i < 100; i++) {
-        a[i] = 10;
-        b[i] = 10;
+int main()
+{
+    int a[SIZE][SIZE], b[SIZE][SIZE], c[SIZE][SIZE];
+    int *dev_a, *dev_b, *dev_c;
+    int size = SIZE * SIZE * sizeof(int);
+
+    // Initialize matrices 'a' and 'b'
+    for (int i = 0; i < SIZE; ++i)
+    {
+        for (int j = 0; j < SIZE; ++j)
+        {
+            a[i][j] = i + j;
+            b[i][j] = i - j;
+        }
     }
 
-    int* d_a, * d_b, * d_c;
-    cudaMalloc(&d_a, sizeof(int) * 100);
-    cudaMalloc(&d_b, sizeof(int) * 100);
-    cudaMalloc(&d_c, sizeof(int) * 100);
+    // Allocate memory on the device
+    cudaMalloc((void**)&dev_a, size);
+    cudaMalloc((void**)&dev_b, size);
+    cudaMalloc((void**)&dev_c, size);
 
-    cudaMemcpy(d_a, a, sizeof(int) * 100, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, b, sizeof(int) * 100, cudaMemcpyHostToDevice);
+    // Copy input matrices from host to device memory
+    cudaMemcpy(dev_a, a, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_b, b, size, cudaMemcpyHostToDevice);
 
-    cudaMemset(d_c, 0, sizeof(int) * 100);
+    // Set grid and block sizes
+    dim3 dimGrid(SIZE / BLOCK_SIZE, SIZE / BLOCK_SIZE);
+    dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
 
-    int iLen = 256;
-    dim3 block(iLen);
-    dim3 grid((100 + block.x - 1) / block.x);
+    // Start timer
+    struct timeval start, end;
+    gettimeofday(&start, NULL);
 
-    cudaEvent_t start, end;
-    cudaEventCreate(&start);
-    cudaEventCreate(&end);
+    // Launch kernel
+    matrixMultiply<<<dimGrid, dimBlock>>>(dev_a, dev_b, dev_c, SIZE);
 
-    cudaEventRecord(start);
+    // Copy result matrix from device to host memory
+    cudaMemcpy(c, dev_c, size, cudaMemcpyDeviceToHost);
 
-    cudaAdd << <grid, block >> > (d_a, d_b, d_c, 100);
+    // Stop timer
+    gettimeofday(&end, NULL);
+    double elapsed_time = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
 
-    cudaEventRecord(end);
-    cudaEventSynchronize(end);
-
-    float elapsed;
-    cudaEventElapsedTime(&elapsed, start, end);
-
-    cudaMemcpy(c, d_c, sizeof(int) * 100, cudaMemcpyDeviceToHost);
-
-    printf("The kernel ran for %.2f milliseconds.\n", elapsed);
-    for (int i = 0; i < 100; i++) {
-        printf("%d ", c[i]);
+    // Print the result matrix
+    printf("Result Matrix:\n");
+    for (int i = 0; i < SIZE; ++i)
+    {
+        for (int j = 0; j < SIZE; ++j)
+        {
+            printf("%d ", c[i][j]);
+        }
+        printf("\n");
     }
-    printf("\n");
 
-    cudaFree(d_a);
-    cudaFree(d_b);
-    cudaFree(d_c);
-    cudaEventDestroy(start);
-    cudaEventDestroy(end);
+    // Print the elapsed time
+    printf("Elapsed Time: %.6f seconds\n", elapsed_time);
+
+    // Free device memory
+    cudaFree(dev_a);
+    cudaFree(dev_b);
+    cudaFree(dev_c);
 
     return 0;
+}
 }
 ```
 
